@@ -23,7 +23,6 @@ type Config struct {
 	DetachedHeadRoom        time.Duration `json:"detached_head_room_msecs"`
 	MaxResponseSize         uint64        `json:"max_response_size_bytes"`
 	MaxHdrResponseSize      uint64        `json:"max_hdr_response_size_bytes"`
-	MaxLogSize              uint64        `json:"max_log_size_bytes"`
 	MaxTotalCPU             uint64        `json:"max_total_cpu_mcpus"`
 	MaxTotalMemory          uint64        `json:"max_total_memory_bytes"`
 	MaxFsSize               uint64        `json:"max_fs_size_mb"`
@@ -36,6 +35,7 @@ type Config struct {
 	MaxTmpFsInodes          uint64        `json:"max_tmpfs_inodes"`
 	DisableReadOnlyRootFs   bool          `json:"disable_readonly_rootfs"`
 	DisableDebugUserLogs    bool          `json:"disable_debug_user_logs"`
+	UserLogLevel            string        `json:"user_log_level"`
 	IOFSEnableTmpfs         bool          `json:"iofs_enable_tmpfs"`
 	IOFSAgentPath           string        `json:"iofs_path"`
 	IOFSMountRoot           string        `json:"iofs_mount_root"`
@@ -65,16 +65,14 @@ const (
 	EnvHotPoll = "FN_HOT_POLL_MSECS"
 	// EnvHotLauncherTimeout is the timeout for a hot container queue to persist if idle
 	EnvHotLauncherTimeout = "FN_HOT_LAUNCHER_TIMEOUT_MSECS"
-	// EnvHotStartTimeout is the timeout for a hot container to be created including docker-pull
+	// EnvHotPullTimeout is the timeout for a hot container to be created including docker-pull
 	EnvHotPullTimeout = "FN_HOT_PULL_TIMEOUT_MSECS"
 	// EnvHotStartTimeout is the timeout for a hot container to become available for use for requests after EnvHotStartTimeout
 	EnvHotStartTimeout = "FN_HOT_START_TIMEOUT_MSECS"
 	// EnvMaxResponseSize is the maximum number of bytes that a function may return from an invocation
 	EnvMaxResponseSize = "FN_MAX_RESPONSE_SIZE"
-	// EnvHdrMaxResponseSize is the maximum number of bytes that a function may return in an invocation header
+	// EnvMaxHdrResponseSize is the maximum number of bytes that a function may return in an invocation header
 	EnvMaxHdrResponseSize = "FN_MAX_HDR_RESPONSE_SIZE"
-	// EnvMaxLogSize is the maximum size that a function's log may reach
-	EnvMaxLogSize = "FN_MAX_LOG_SIZE_BYTES"
 	// EnvMaxTotalCPU is the maximum CPU that will be reserved across all containers
 	EnvMaxTotalCPU = "FN_MAX_TOTAL_CPU_MCPUS"
 	// EnvMaxTotalMemory is the maximum memory that will be reserved across all containers
@@ -100,6 +98,8 @@ const (
 	EnvDisableReadOnlyRootFs = "FN_DISABLE_READONLY_ROOTFS"
 	// EnvDisableDebugUserLogs disables user function logs being logged at level debug. wise to enable for production.
 	EnvDisableDebugUserLogs = "FN_DISABLE_DEBUG_USER_LOGS"
+	// EnvUserLogLevel is the logging level to use for user's function logs to be logged by fn. to disable explicitly, use FN_DISABLE_DEBUG_USER_LOGS
+	EnvUserLogLevel = "FN_USER_LOG_LEVEL"
 
 	// EnvIOFSEnableTmpfs enables creating a per-container tmpfs mount for the IOFS
 	EnvIOFSEnableTmpfs = "FN_IOFS_TMPFS"
@@ -134,7 +134,6 @@ const (
 func NewConfig() (*Config, error) {
 	cfg := &Config{
 		MinDockerVersion: "17.10.0-ce",
-		MaxLogSize:       1 * 1024 * 1024,
 		PreForkImage:     "busybox",
 		PreForkCmd:       "tail -f /dev/null",
 	}
@@ -148,7 +147,6 @@ func NewConfig() (*Config, error) {
 	err = setEnvMsecs(err, EnvDetachedHeadroom, &cfg.DetachedHeadRoom, time.Duration(360)*time.Second)
 	err = setEnvUint(err, EnvMaxResponseSize, &cfg.MaxResponseSize)
 	err = setEnvUint(err, EnvMaxHdrResponseSize, &cfg.MaxHdrResponseSize)
-	err = setEnvUint(err, EnvMaxLogSize, &cfg.MaxLogSize)
 	err = setEnvUint(err, EnvMaxTotalCPU, &cfg.MaxTotalCPU)
 	err = setEnvUint(err, EnvMaxTotalMemory, &cfg.MaxTotalMemory)
 	err = setEnvUint(err, EnvMaxFsSize, &cfg.MaxFsSize)
@@ -168,17 +166,13 @@ func NewConfig() (*Config, error) {
 	err = setEnvBool(err, EnvEnableNBResourceTracker, &cfg.EnableNBResourceTracker)
 	err = setEnvBool(err, EnvDisableReadOnlyRootFs, &cfg.DisableReadOnlyRootFs)
 	err = setEnvBool(err, EnvDisableDebugUserLogs, &cfg.DisableDebugUserLogs)
+	err = setEnvStr(err, EnvUserLogLevel, &cfg.UserLogLevel)
 	err = setEnvUint(err, EnvImageCleanMaxSize, &cfg.ImageCleanMaxSize)
 	err = setEnvStr(err, EnvImageCleanExemptTags, &cfg.ImageCleanExemptTags)
 	err = setEnvBool(err, EnvImageEnableVolume, &cfg.ImageEnableVolume)
 
 	if err != nil {
 		return cfg, err
-	}
-
-	if cfg.MaxLogSize > math.MaxInt64 {
-		// for safety during uint64 to int conversions in Write()/Read(), etc.
-		return cfg, fmt.Errorf("error invalid %s %v > %v", EnvMaxLogSize, cfg.MaxLogSize, math.MaxInt64)
 	}
 
 	return cfg, nil
